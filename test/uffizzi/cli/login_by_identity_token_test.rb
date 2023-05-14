@@ -5,7 +5,7 @@ require 'test_helper'
 class LoginByIdentityTokenTest < Minitest::Test
   def setup
     @cli = Uffizzi::Cli.new
-    @cli.options = command_options(token: 'token', server: Uffizzi.configuration.server)
+    @cli.options = command_options(token: 'token', server: Uffizzi.configuration.server, access_token: 'token')
   end
 
   def test_login_success_with_oidc
@@ -26,7 +26,7 @@ class LoginByIdentityTokenTest < Minitest::Test
     body = json_fixture('files/uffizzi/uffizzi_login_by_jwt_failure.json')
     stubbed_uffizzi_login = stub_uffizzi_login_by_identity_token_failure(body)
 
-    assert_raises(Uffizzi::Error) do
+    assert_raises(Uffizzi::ServerResponseError) do
       @cli.login_by_identity_token
     end
 

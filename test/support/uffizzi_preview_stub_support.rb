@@ -36,8 +36,8 @@ module UffizziPreviewStubSupport
       actual_request_body = JSON.parse(req.body).deep_symbolize_keys.deep_sort
       next comparator.call(expected_data, actual_request_body) unless comparator.nil?
 
-      expected_reques_body = expected_data.deep_symbolize_keys.deep_sort
-      actual_request_body == expected_reques_body
+      expected_request_body = expected_data.deep_symbolize_keys.deep_sort
+      actual_request_body == expected_request_body
     end.to_return(status: 201, body: body.to_json)
   end
 
@@ -95,6 +95,12 @@ module UffizziPreviewStubSupport
     stub_request(:get, url).to_return(status: 404, body: body.to_json)
   end
 
+  def stub_uffizzi_preview_activity_items_unprocessable_entity(body, project_slug, deployment_id)
+    url = activity_items_uri(Uffizzi.configuration.server, project_slug, deployment_id)
+
+    stub_request(:get, url).to_return(status: 422, body: body.to_json)
+  end
+
   def stub_uffizzi_preview_events_success(body, deployment_id, project_slug)
     url = events_uri(Uffizzi.configuration.server, project_slug, deployment_id)
 
@@ -111,5 +117,11 @@ module UffizziPreviewStubSupport
     url = preview_service_logs_uri(Uffizzi.configuration.server, project_slug, deployment_id, container_name)
 
     stub_request(:get, url).to_return(status: 200, body: body.to_json, headers: {})
+  end
+
+  def stub_uffizzi_k8s_container_description_success(body, project_slug, deployment_id, container_name)
+    url = k8s_container_description_uri(Uffizzi.configuration.server, project_slug, deployment_id, container_name)
+
+    stub_request(:get, url).to_return(status: 200, body: body.to_json)
   end
 end

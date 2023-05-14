@@ -23,6 +23,7 @@ module Uffizzi
     desc 'create [COMPOSE_FILE]', 'Create a preview'
     method_option :output, required: false, type: :string, aliases: '-o', enum: ['json', 'github-action']
     method_option :"set-labels", required: false, type: :string, aliases: '-s'
+    method_option :"creation-source", required: false, type: :string
     def create(file_path = nil)
       run('create', file_path: file_path)
     end
@@ -62,7 +63,7 @@ module Uffizzi
       when 'list'
         handle_list_command(project_slug, options[:filter])
       when 'create'
-        handle_create_command(file_path, project_slug, options[:"set-labels"])
+        handle_create_command(file_path, project_slug, options[:"set-labels"], options[:"creation-source"])
       when 'update'
         handle_update_command(deployment_name, file_path, project_slug, options[:"set-labels"])
       when 'delete'
@@ -85,10 +86,9 @@ module Uffizzi
       end
     end
 
-    def handle_create_command(file_path, project_slug, labels)
-      Uffizzi.ui.disable_stdout unless options[:output].nil?
-
-      params = prepare_params(file_path, labels)
+    def handle_create_command(file_path, project_slug, labels, creation_source)
+      Uffizzi.ui.disable_stdout if Uffizzi.ui.output_format
+      params = prepare_params(file_path, labels, creation_source)
 
       response = create_deployment(ConfigFile.read_option(:server), project_slug, params)
 
@@ -98,17 +98,18 @@ module Uffizzi
 
       deployment = response[:body][:deployment]
       Uffizzi.ui.say("Preview with ID deployment-#{deployment[:id]} was created.")
+      deployment_data = build_deployment_data(deployment)
+      Uffizzi.ui.say("Deployment details url: #{deployment_data[:containers_uri]}")
 
-      success = PreviewService.run_containers_deploy(project_slug, deployment)
-
-      display_deployment_data(deployment, success)
+      PreviewService.run_containers_deploy(project_slug, deployment)
+      handle_result(deployment_data)
     rescue SystemExit, Interrupt, SocketError
       deployment_id = response[:body][:deployment][:id]
       handle_preview_interruption(deployment_id, ConfigFile.read_option(:server), project_slug)
     end
 
     def handle_update_command(deployment_name, file_path, project_slug, labels)
-      Uffizzi.ui.disable_stdout unless options[:output].nil?
+      Uffizzi.ui.disable_stdout if Uffizzi.ui.output_format
       deployment_id = PreviewService.read_deployment_id(deployment_name)
 
       raise Uffizzi::Error.new("Preview should be specified in 'deployment-PREVIEW_ID' format") if deployment_id.nil?
@@ -122,10 +123,11 @@ module Uffizzi
 
       deployment = response[:body][:deployment]
       Uffizzi.ui.say("Preview with ID deployment-#{deployment_id} was updated.")
+      deployment_data = build_deployment_data(deployment)
+      Uffizzi.ui.say("Deployment details url: #{deployment_data[:containers_uri]}")
 
-      success = PreviewService.run_containers_deploy(project_slug, deployment)
-
-      display_deployment_data(deployment, success)
+      PreviewService.run_containers_deploy(project_slug, deployment)
+      handle_result(deployment_data)
     rescue SystemExit, Interrupt, SocketError
       deployment_id = response[:body][:deployment][:id]
       handle_preview_interruption(deployment_id, ConfigFile.read_option(:server), project_slug)
@@ -215,13 +217,13 @@ module Uffizzi
       end
     end
 
-    def prepare_params(file_path, labels)
+    def prepare_params(file_path, labels, creation_source = nil)
       compose_file_params = file_path.nil? ? {} : build_compose_file_params(file_path)
       metadata_params = labels.nil? ? {} : build_metadata_params(labels)
       token = ConfigFile.read_option(:token)
       extra_params = token.nil? ? {} : { token: token }
       params = compose_file_params.merge(metadata_params)
-      params.merge(extra_params)
+      params.merge(extra_params, { creation_source: creation_source })
     end
 
     def handle_preview_interruption(deployment_id, server, project_slug)
@@ -236,16 +238,10 @@ module Uffizzi
       raise Uffizzi::Error.new("The preview creation was interrupted. #{preview_deletion_message}")
     end
 
-    def display_deployment_data(deployment, success)
-      if Uffizzi.ui.output_format.nil?
-        Uffizzi.ui.say('Done')
-        preview_url = "https://#{deployment[:preview_url]}"
-        Uffizzi.ui.say(preview_url) if success
-      else
-        deployment_data = build_deployment_data(deployment)
-        Uffizzi.ui.enable_stdout
-        Uffizzi.ui.say(deployment_data)
-      end
+    def handle_result(deployment_data)
+      Uffizzi.ui.enable_stdout
+      Uffizzi.ui.say(deployment_data) if Uffizzi.ui.output_format
+      write_to_github_env(deployment_data) if ENV['GITHUB_ACTIONS']
     end
 
     def build_deployment_data(deployment)
@@ -320,6 +316,16 @@ module Uffizzi
       return result.merge(param) unless result.has_key?(key)
 
       { key => result[key].merge(merge_params(result[key], param[key])) }
+    end
+
+    def write_to_github_env(data)
+      return '' unless data.is_a?(Hash)
+
+      github_output = ENV.fetch('GITHUB_OUTPUT') { raise 'GITHUB_OUTPUT is not defined' }
+
+      File.open(github_output, 'a') do |f|
+        data.each { |(key, value)| f.puts("#{key}=#{value}") }
+      end
     end
   end
 end

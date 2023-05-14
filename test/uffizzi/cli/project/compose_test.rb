@@ -46,11 +46,26 @@ class ComposeTest < Minitest::Test
     ENV['CONFIG_SOURCE'] = 'vote.conf'
 
     @compose.options = command_options(file: 'test/compose_files/test_compose_with_env_vars.yml')
-    error = assert_raises(StandardError) do
+    error = assert_raises(Uffizzi::Error) do
       @compose.set
     end
 
     assert_equal("Environment variable PORT doesn't exist", error.message)
+    refute_requested(stubbed_uffizzi_create_compose)
+  end
+
+  def test_compose_set_with_compose_file_with_syntax_error
+    body = json_fixture('files/uffizzi/uffizzi_create_compose_success.json')
+    stubbed_uffizzi_create_compose = stub_uffizzi_create_compose_success(body, @project_slug)
+    ENV['IMAGE'] = 'nginx'
+    ENV['CONFIG_SOURCE'] = 'vote.conf'
+
+    @compose.options = command_options(file: 'test/compose_files/test_compose_with_syntax_error.yml')
+    error = assert_raises(Uffizzi::Error) do
+      @compose.set
+    end
+
+    assert_equal('Syntax error: mapping values are not allowed in this context at line 3 column 10', error.message)
     refute_requested(stubbed_uffizzi_create_compose)
   end
 
@@ -74,7 +89,7 @@ class ComposeTest < Minitest::Test
     ENV['PORT'] = '80'
 
     @compose.options = command_options(file: 'test/compose_files/test_compose_with_env_vars.yml')
-    error = assert_raises(StandardError) do
+    error = assert_raises(Uffizzi::Error) do
       @compose.set
     end
 
@@ -86,15 +101,15 @@ class ComposeTest < Minitest::Test
     body = json_fixture('files/uffizzi/uffizzi_create_compose_without_images.json')
     stubbed_uffizzi_create_compose = stub_uffizzi_create_compose_failed(body, @project_slug)
 
-    error_message = body[:errors][:path].last
-
     @compose.options = command_options(file: 'test/compose_files/test_compose_without_images.yml')
 
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @compose.set
     end
 
-    assert_equal(error_message, error.message.strip)
+    expected_error_message = render_server_error(body[:errors][:path].last)
+
+    assert_equal(expected_error_message, error.message.strip)
     assert_requested(stubbed_uffizzi_create_compose)
   end
 
@@ -127,15 +142,15 @@ class ComposeTest < Minitest::Test
     body = json_fixture('files/uffizzi/uffizzi_create_compose_with_already_existed_compose_file.json')
     stubbed_uffizzi_create_compose = stub_uffizzi_create_compose_failed(body, @project_slug)
 
-    error_message = body[:errors][:compose_file].last
-
     @compose.options = command_options(file: 'test/compose_files/test_compose_success.yml')
 
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @compose.set
     end
 
-    assert_equal(error_message, error.message.strip)
+    expected_error_message = render_server_error(body[:errors][:compose_file].last)
+
+    assert_equal(expected_error_message, error.message.strip)
     assert_requested(stubbed_uffizzi_create_compose)
   end
 
@@ -153,13 +168,13 @@ class ComposeTest < Minitest::Test
     body = json_fixture('files/uffizzi/uffizzi_compose_with_not_existed_compose_file.json')
     stubbed_uffizzi_unset_compose = stub_uffizzi_unset_compose_failed(body, @project_slug)
 
-    error_message = body[:errors][:compose_file].last
-
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @compose.unset
     end
 
-    assert_equal(error_message, error.message.strip)
+    expected_error_message = render_server_error(body[:errors][:compose_file].last)
+
+    assert_equal(expected_error_message, error.message.strip)
     assert_requested(stubbed_uffizzi_unset_compose)
   end
 
@@ -176,13 +191,13 @@ class ComposeTest < Minitest::Test
     body = json_fixture('files/uffizzi/uffizzi_describe_compose_invalid_file.json')
     stubbed_uffizzi_unset_compose = stub_uffizzi_describe_compose(body, @project_slug)
 
-    error_message = body[:compose_file][:payload][:errors][:path].last
-
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @compose.describe
     end
 
-    assert_equal(error_message, error.message.strip)
+    expected_error_message = render_server_error(body[:compose_file][:payload][:errors][:path].last)
+
+    assert_equal(expected_error_message, error.message.strip)
     assert_requested(stubbed_uffizzi_unset_compose)
   end
 end

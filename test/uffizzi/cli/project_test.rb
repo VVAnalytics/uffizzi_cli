@@ -23,7 +23,7 @@ class ProjectsTest < Minitest::Test
   def test_project_create_success
     body = json_fixture('files/uffizzi/uffizzi_project_success.json')
     login_body = json_fixture('files/uffizzi/uffizzi_login_success.json')
-    account_id = login_body[:user][:accounts].first[:id].to_s
+    account_id = login_body[:user][:default_account][:id].to_s
     stubbed_uffizzi_project = stub_uffizzi_project_create_success(body, account_id)
     @project.options = {
       name: 'name',
@@ -74,7 +74,7 @@ class ProjectsTest < Minitest::Test
     body = json_fixture('files/uffizzi/uffizzi_projects_failed.json')
     stubbed_uffizzi_projects = stub_uffizzi_projects_failed(body)
 
-    error = assert_raises(StandardError) do
+    error = assert_raises(Uffizzi::Error) do
       @project.list
     end
 
@@ -101,11 +101,13 @@ class ProjectsTest < Minitest::Test
     project_slug = 'test'
     stubbed_uffizzi_projects = stub_uffizzi_project_failed(body, project_slug)
 
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @project.set_default(project_slug)
     end
 
-    assert_match(error.message, "Resource Not Found\n")
+    expected_error_message = render_server_error("Resource Not Found\n")
+
+    assert_match(expected_error_message, error.message)
     assert_requested(stubbed_uffizzi_projects)
   end
 

@@ -12,6 +12,8 @@ class PreviewTest < Minitest::Test
     ENV.delete('IMAGE')
     ENV.delete('CONFIG_SOURCE')
     ENV.delete('PORT')
+    ENV['GITHUB_OUTPUT'] = '/tmp/.env'
+    ENV['GITHUB_ACTIONS'] = 'true'
     Uffizzi.ui.output_format = nil
   end
 
@@ -103,11 +105,13 @@ class PreviewTest < Minitest::Test
     deployment_id = 1
     stubbed_uffizzi_preview_delete = stub_uffizzi_preview_delete_failed(body, @project_slug, deployment_id)
 
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @preview.delete("deployment-#{deployment_id}")
     end
 
-    assert_equal('Resource Not Found', error.message.strip)
+    expected_error_message = render_server_error("Resource Not Found\n")
+
+    assert_equal(expected_error_message, error.message)
     assert_requested(stubbed_uffizzi_preview_delete)
   end
 
@@ -138,11 +142,13 @@ class PreviewTest < Minitest::Test
     deployment_id = 1
     stubbed_uffizzi_preview_describe = stub_uffizzi_preview_describe_not_found(body, @project_slug, deployment_id)
 
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @preview.describe("deployment-#{deployment_id}")
     end
 
-    assert_equal('Resource Not Found', error.message.strip)
+    expected_error_message = render_server_error("Resource Not Found\n")
+
+    assert_equal(expected_error_message, error.message)
     assert_requested(stubbed_uffizzi_preview_describe)
   end
 
@@ -236,7 +242,7 @@ class PreviewTest < Minitest::Test
     stubbed_uffizzi_preview_deploy_containers = stub_uffizzi_preview_deploy_containers_success(@project_slug, deployment_id)
     stubbed_uffizzi_preview_activity_items = stub_uffizzi_preview_activity_items_success(activity_items_body, @project_slug, deployment_id)
 
-    assert_raises(Uffizzi::Error) do
+    assert_raises(Uffizzi::ServerResponseError) do
       @preview.create
     end
 
@@ -250,8 +256,11 @@ class PreviewTest < Minitest::Test
     activity_items_body = json_fixture('files/uffizzi/uffizzi_preview_activity_items_deployed.json')
     deployment_id = create_body[:deployment][:id]
 
+    @preview.options = command_options("creation-source": 'github_actions')
+
     # rubocop:disable Layout/LineLength
     expected_data = {
+      creation_source: 'github_actions',
       compose_file: {
         content: Base64.encode64(File.read('test/compose_files/test_compose_success.yml')),
         path: File.expand_path('test/compose_files/test_compose_success.yml'),
@@ -334,7 +343,7 @@ class PreviewTest < Minitest::Test
       deployment_id,
     )
 
-    assert_raises(Uffizzi::Error) do
+    assert_raises(Uffizzi::ServerResponseError) do
       @preview.create
     end
 
@@ -404,7 +413,7 @@ class PreviewTest < Minitest::Test
 
     @preview.create('test/compose_files/test_compose_with_env_vars.yml')
 
-    assert_equal("https://#{create_body[:deployment][:preview_url]}", Uffizzi.ui.last_message)
+    assert_equal("Deployment url: https://#{create_body[:deployment][:preview_url]}", Uffizzi.ui.last_message)
     assert_requested(stubbed_uffizzi_preview_activity_items, times: 2)
     assert_requested(stubbed_uffizzi_preview_deploy_containers)
     assert_requested(stubbed_uffizzi_preview_create)
@@ -416,7 +425,7 @@ class PreviewTest < Minitest::Test
     ENV['IMAGE'] = 'nginx'
     ENV['CONFIG_SOURCE'] = 'vote.conf'
 
-    error = assert_raises(StandardError) do
+    error = assert_raises(Uffizzi::Error) do
       @preview.create('test/compose_files/test_compose_with_env_vars.yml')
     end
 
@@ -431,7 +440,7 @@ class PreviewTest < Minitest::Test
     ENV['IMAGE'] = 'nginx'
     ENV['PORT'] = '80'
 
-    error = assert_raises(StandardError) do
+    error = assert_raises(Uffizzi::Error) do
       @preview.create('test/compose_files/test_compose_with_env_vars.yml')
     end
 
@@ -462,15 +471,15 @@ class PreviewTest < Minitest::Test
     stubbed_uffizzi_preview_deploy_containers = stub_uffizzi_preview_deploy_containers_success(@project_slug, deployment_id)
     stubbed_uffizzi_preview_activity_items = stub_uffizzi_preview_activity_items_success(activity_items_body, @project_slug, deployment_id)
 
-    @preview.options = command_options(output: Uffizzi::UI::Shell::GITHUB_ACTION)
+    @preview.options = command_options(output: Uffizzi::UI::Shell::REGULAR_JSON)
     @preview.update("deployment-#{deployment_id}", 'test/compose_files/test_compose_success.yml')
 
-    expected_message_keys = ['name=id', 'name=url', 'containers_uri']
-    actual_messages = Uffizzi.ui.messages.last.split("\n")
+    last_message = Uffizzi.ui.last_message
+    data = JSON.parse(last_message)
+    assert_equal("deployment-#{deployment_id}", data['id'])
+    assert_equal('https://preview_url', data['url'])
+    assert_equal('http://web:7000/projects/2/deployments/160/containers', data['containers_uri'])
 
-    expected_message_keys.zip(actual_messages).each do |(expected_msg_key, actual_msg)|
-      assert_match(expected_msg_key, actual_msg)
-    end
     assert_requested(stubbed_uffizzi_preview_activity_items, times: 2)
     assert_requested(stubbed_uffizzi_preview_deploy_containers)
     assert_requested(stubbed_uffizzi_preview_update)
@@ -481,11 +490,13 @@ class PreviewTest < Minitest::Test
     deployment_id = 1
     stubbed_uffizzi_preview_update = stub_uffizzi_preview_update_not_found(body, @project_slug, deployment_id)
 
-    error = assert_raises(Uffizzi::Error) do
+    error = assert_raises(Uffizzi::ServerResponseError) do
       @preview.update("deployment-#{deployment_id}", 'test/compose_files/test_compose_success.yml')
     end
 
-    assert_equal('Resource Not Found', error.message.strip)
+    expected_error_message = render_server_error("Resource Not Found\n")
+
+    assert_equal(expected_error_message, error.message)
     assert_requested(stubbed_uffizzi_preview_update)
   end
 
@@ -501,7 +512,7 @@ class PreviewTest < Minitest::Test
 
     @preview.update("deployment-#{deployment_id}", 'test/compose_files/test_compose_with_env_vars.yml')
 
-    assert_equal("https://#{update_body[:deployment][:preview_url]}", Uffizzi.ui.last_message)
+    assert_equal("Deployment url: https://#{update_body[:deployment][:preview_url]}", Uffizzi.ui.last_message)
     assert_requested(stubbed_uffizzi_preview_activity_items, times: 2)
     assert_requested(stubbed_uffizzi_preview_deploy_containers)
     assert_requested(stubbed_uffizzi_preview_update)
@@ -514,7 +525,7 @@ class PreviewTest < Minitest::Test
     ENV['IMAGE'] = 'nginx'
     ENV['CONFIG_SOURCE'] = 'vote.conf'
 
-    error = assert_raises(StandardError) do
+    error = assert_raises(Uffizzi::Error) do
       @preview.update("deployment-#{deployment_id}", 'test/compose_files/test_compose_with_env_vars.yml')
     end
 
@@ -530,7 +541,7 @@ class PreviewTest < Minitest::Test
     ENV['IMAGE'] = 'nginx'
     ENV['PORT'] = '80'
 
-    error = assert_raises(StandardError) do
+    error = assert_raises(Uffizzi::Error) do
       @preview.update("deployment-#{deployment_id}", 'test/compose_files/test_compose_with_env_vars.yml')
     end
 
@@ -590,7 +601,7 @@ class PreviewTest < Minitest::Test
 
     @preview.create('test/compose_files/test_compose_with_alias.yml')
 
-    assert_equal("https://#{create_body[:deployment][:preview_url]}", Uffizzi.ui.last_message)
+    assert_equal("Deployment url: https://#{create_body[:deployment][:preview_url]}", Uffizzi.ui.last_message)
     assert_requested(stubbed_uffizzi_preview_activity_items, times: 2)
     assert_requested(stubbed_uffizzi_preview_deploy_containers)
     assert_requested(stubbed_uffizzi_preview_create)
@@ -619,5 +630,50 @@ class PreviewTest < Minitest::Test
     assert_requested(stubbed_uffizzi_preview_activity_items, times: 2)
     assert_requested(stubbed_uffizzi_preview_deploy_containers)
     assert_requested(stubbed_uffizzi_preview_create)
+  end
+
+  def test_create_preview_with_failed_deployment
+    create_body = json_fixture('files/uffizzi/uffizzi_preview_create_with_labels_success.json')
+    activity_items_body = json_fixture('files/uffizzi/uffizzi_preview_activity_items_deployed.json')
+    deployment_id = create_body[:deployment][:id]
+    web_service_name = create_body[:deployment][:containers][0][:service_name]
+    redis_service_name = create_body[:deployment][:containers][1][:service_name]
+    stubbed_uffizzi_preview_create = stub_uffizzi_preview_create_success(create_body, @project_slug)
+    stubbed_uffizzi_preview_deploy_containers = stub_uffizzi_preview_deploy_containers_success(@project_slug, deployment_id)
+    failed_response_body_for_activity_items = { 'errors' => { 'title' => ["Preview with ID deployment-#{deployment_id} failed"] } }
+    stubbed_uffizzi_preview_activity_items = stub_uffizzi_preview_activity_items_unprocessable_entity(
+      failed_response_body_for_activity_items, @project_slug, deployment_id
+    )
+
+    k8s_container_last_state = {
+      code: 127,
+      reason: 'MOOKiller',
+      exit_code: 999,
+      started_at: Time.now,
+      finished_at: Time.now,
+    }
+    stub_uffizzi_k8s_container_description_success({ last_state: k8s_container_last_state }, @project_slug, deployment_id, web_service_name)
+    stub_uffizzi_k8s_container_description_success({}, @project_slug, deployment_id, redis_service_name)
+
+    @preview.options = command_options("set-labels": 'github.repository=UffizziCloud/example-voting-app github.pull_request.number=23')
+
+    error = assert_raises(Uffizzi::ServerResponseError) do
+      PreviewService.stub(:wait_containers_creation, activity_items_body[:activity_items]) do
+        @preview.create
+      end
+    end
+
+    assert_requested(stubbed_uffizzi_preview_activity_items, times: 1)
+    assert_requested(stubbed_uffizzi_preview_deploy_containers)
+    assert_requested(stubbed_uffizzi_preview_create)
+
+    expected_msg = "Preview with ID deployment-#{deployment_id} failed\n"\
+                   "Last State for container '#{web_service_name}':\n"\
+                   " code: #{k8s_container_last_state[:code]}\n"\
+                   " reason: #{k8s_container_last_state[:reason]}\n"\
+                   " exit_code: #{k8s_container_last_state[:exit_code]}\n"\
+                   " started_at: #{k8s_container_last_state[:started_at]}\n"\
+                   " finished_at: #{k8s_container_last_state[:finished_at]}\n"
+    assert_equal(render_server_error(expected_msg), error.message)
   end
 end
